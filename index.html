@@ -4532,7 +4532,7 @@ if (typeof module === "object" && typeof module.exports === "object") Object.ass
         hardwareAcceleration: 'no-preference', latencyMode: 'realtime', avc: { format: 'avc' } };
       try { if ((await VideoEncoder.isConfigSupported(config)).supported) { videoConfig = config; break; } }
       catch { /* Try another AVC profile. */ }
-    }
+    } 
     if (!videoConfig) return unavailable('This browser cannot encode H.264 at the selected 1080p size. Open this HTML in a current Chrome, Edge, or Safari browser on a device with H.264 encoding support.');
     let nativeAac = false;
     if (globalThis.AudioEncoder) {
