@@ -1,0 +1,27 @@
+.jaw-preview-shell{position:relative;width:100%;max-width:var(--jaw-inline-width,100%)}
+.jaw-preview-surface{position:relative;width:100%;overflow:hidden;border-radius:4px;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.jaw-preview-surface #preview{max-width:none!important;width:100%;height:auto}
+.jaw-skip-flash{position:absolute;inset:0 50% 0 0;display:flex;align-items:center;justify-content:center;font:700 1.3rem/1 system-ui;color:white;text-shadow:0 1px 6px #000;pointer-events:none;opacity:0;background:radial-gradient(ellipse at left,rgba(192,225,196,.6),rgba(135,169,139,.05) 75%);border-radius:0 50% 50% 0}
+.jaw-skip-flash[data-side=right]{inset:0 0 0 50%;background:radial-gradient(ellipse at right,rgba(192,225,196,.6),rgba(135,169,139,.05) 75%);border-radius:50% 0 0 50%}
+.jaw-skip-flash.is-visible{animation:jaw-skip-glow .75s ease-out}
+@keyframes jaw-skip-glow{0%{opacity:0}15%,45%{opacity:1}100%{opacity:0}}
+.jaw-screen-reader{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.jaw-float-bar,.jaw-float-controls,.jaw-float-resize{display:none}
+.jaw-floating-option{font-size:.78rem;gap:5px}
+.jaw-preview-tip{font-size:.73rem;margin:0 0 9px}
+.jaw-float-placeholder{color:var(--muted,#b3b3b3);font-size:.8rem;text-align:center}
+.jaw-float-placeholder[hidden]{display:none}
+.jaw-preview-shell.is-floating{position:fixed;z-index:70;max-width:none;border:1px solid #566858;border-radius:12px;box-shadow:0 12px 44px #0009;background:#181b18;overflow:hidden}
+.jaw-preview-shell.is-floating .jaw-preview-surface{border-radius:0}
+.jaw-preview-shell.is-floating #preview{max-height:none!important;border-radius:0;aspect-ratio:auto}
+.is-floating .jaw-float-bar{display:flex;align-items:center;gap:2px;height:34px;padding:0 5px}
+.is-floating .jaw-float-bar button{min-height:28px;height:28px;padding:2px 6px;border:0;border-radius:5px;font-size:.8rem;background:transparent}
+.is-floating .jaw-float-bar .jaw-float-grip{flex:1;justify-content:flex-start;cursor:grab;touch-action:none}
+.is-floating .jaw-float-bar .jaw-float-grip:active{cursor:grabbing}
+.is-floating .jaw-float-controls{display:flex;align-items:center;justify-content:flex-start;gap:1px;height:44px;padding:0 12px 0 4px}
+.is-floating .jaw-float-controls button{min-width:34px;min-height:36px;padding:4px;font-size:.75rem;border:0;background:transparent}
+.jaw-float-clock{font-size:.65rem;font-variant-numeric:tabular-nums;margin-left:auto;white-space:nowrap;padding-left:3px}
+.is-floating .jaw-float-resize{position:absolute;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:flex-end;width:25px;height:25px;min-height:25px;padding:0 2px 1px 0;border:0;border-radius:0;color:#a8c4ac;background:transparent;cursor:nwse-resize;touch-action:none;font-size:14px}
+.jaw-preview-shell.is-floating button:focus-visible{outline-offset:-3px}
+@media(prefers-reduced-motion:reduce){.jaw-skip-flash.is-visible{animation:none;opacity:1}}
+@media(max-width:600px){.jaw-floating-option{width:100%}.jaw-preview-tip{font-size:.7rem}}
