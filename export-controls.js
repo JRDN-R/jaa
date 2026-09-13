@@ -31,11 +31,13 @@
     for (const option of $('fps').options) option.disabled = mobile && Number(option.value) > 30;
     $('mobileExportNote').hidden = !mobile;
     $('transparent').disabled = state.busy || settings.exportFormat === 'mp4';
-    $('background').disabled = state.busy || settings.transparent;
+    $('background').disabled = state.busy;
     $('preview').classList.toggle('is-transparent', settings.transparent);
     $('transparencyHelp').textContent = settings.exportFormat === 'mp4'
       ? 'Choose WebM or MOV for a video with no background.'
-      : 'The checkerboard is a preview guide. It is not included in your video.';
+      : settings.transparent
+        ? 'The checkerboard is a preview guide. It is not included in your video. Choosing a background color turns transparency off.'
+        : 'Enable transparency to export without a background.';
     $('exportSummary').textContent = `${width} × ${height} · ${settings.fps} fps · ${formats[settings.exportFormat].label}${settings.transparent ? ' · Transparent' : ''} · Includes your audio`;
     $('formatBadge').textContent = `${width} × ${height} / ${settings.fps} FPS`;
     $('exportSupport').textContent = settings.exportFormat === 'mp4'
