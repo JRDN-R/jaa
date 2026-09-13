@@ -23,7 +23,7 @@ const server=http.createServer((req,res)=>{
    const register=navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
    navigator.mediaSession.setActionHandler=(name,handler)=>{window.testMediaActions[name]=handler;register(name,handler);};
   });
-  await page.goto(base,{waitUntil:'load'});await page.click('#demo');
+  await page.goto(base,{waitUntil:'load'});await page.$eval('details.help',el=>{el.open=true;});await page.click('#demo');await page.$eval('details.help',el=>{el.open=false;});
   await page.waitForFunction(()=>document.querySelector('#previewAudio').readyState>=1);
   assert.equal(await page.$eval('#previewAudio',e=>e.duration),8);
   await page.click('#skipForward');await page.waitForFunction(()=>Number(document.querySelector('#scrubber').value)===5);
