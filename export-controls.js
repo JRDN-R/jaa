@@ -8,7 +8,7 @@
     mov: { label: 'MOV', extension: '.mov', mime: 'video/quicktime' }
   };
   function normalize(settings) {
-    const mobile = LyricVideoExport.isMobileDevice();
+    const mobile = LyricVideoExport.isMobileDevice() && !globalThis.JAWCloudConnection?.canRender();
     settings.exportFormat = Object.hasOwn(formats, settings.exportFormat) ? settings.exportFormat : 'mp4';
     settings.resolution = !mobile && String(settings.resolution) === '2160' ? '2160' : '1080';
     settings.fps = [24, 30, 50, 60].includes(Number(settings.fps)) ? Number(settings.fps) : 24;
@@ -21,7 +21,7 @@
     return aspect === 'portrait' ? [side, side * 16 / 9] : aspect === 'square' ? [side, side] : [side * 16 / 9, side];
   }
   function refresh(state) {
-    const settings = normalize(state.settings), mobile = LyricVideoExport.isMobileDevice();
+    const settings = normalize(state.settings), mobile = LyricVideoExport.isMobileDevice() && !globalThis.JAWCloudConnection?.canRender();
     const [width, height] = dimensions(settings.aspect, settings.resolution);
     $('resolution').value = settings.resolution;
     $('fps').value = String(settings.fps);

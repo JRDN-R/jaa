@@ -5,6 +5,16 @@ const supportedFps=[24,30,50,60], normalizeFps=value=>supportedFps.includes(Numb
 const videoDimensions=JAWExportSettings.dimensions;
 const settingsKeys=['exportFormat','resolution','transparent','fps','aspect','style','font','background','foreground','accent','motion','groupSize','uppercase'];
 const state={words:[],settings:{exportFormat:'mp4',resolution:'1080',transparent:false,fps:24,aspect:'wide',style:'kinetic',font:'Arial Black',background:'#000000',foreground:'#ffffff',accent:'#87a98b',motion:1,groupSize:5,uppercase:false},audio:null,file:null,audioName:'',duration:0,selected:null,position:0,playing:false,busy:false,job:null,page:0,history:[],future:[],windowStart:0};
+const cloudConnection={mode:'auto',thresholdSeconds:globalThis.JAW_CLOUD_CONFIG?.thresholdSeconds||60,endpoint:globalThis.JAW_CLOUD_CONFIG?.endpoint||'',accessKey:''};
+try{const saved=JSON.parse(localStorage.getItem('jaw-cloud-export-v1')||'null');if(saved){Object.assign(cloudConnection,JAWCloudExport.normalizeSettings(saved));if(saved.endpoint)cloudConnection.endpoint=JAWCloudExport.normalizeEndpoint(saved.endpoint);}cloudConnection.accessKey=sessionStorage.getItem('jaw-cloud-access-v1')||'';}catch{}
+globalThis.JAWCloudConnection=Object.freeze({canRender:()=>cloudConnection.mode!=='local'&&!!cloudConnection.endpoint&&!!cloudConnection.accessKey});
+function cloudRoute(){const [width,height]=videoDimensions(state.settings.aspect,state.settings.resolution);return JAWCloudExport.route({...cloudConnection,width,height,duration:state.duration,fps:state.settings.fps,format:state.settings.exportFormat,transparent:state.settings.transparent,mobile:LyricVideoExport.isMobileDevice(),configured:!!cloudConnection.endpoint&&!!cloudConnection.accessKey});}
+function refreshCloudControls(){
+ for(const id of ['exportLocation','cloudThreshold','cloudEndpoint','cloudAccessKey','saveCloudConnection'])$(id).disabled=state.busy;
+ $('exportLocation').value=cloudConnection.mode;$('cloudThreshold').value=String(cloudConnection.thresholdSeconds);
+ const route=cloudRoute();$('cloudRoute').textContent=route.error||`${route.target==='cloud'?'Replicate server':'This device'} · ${route.reason}`;
+ $('cloudThreshold').disabled=state.busy||cloudConnection.mode!=='auto';
+}
 const timelineView={span:Number($('zoom').value)||8,follow:true,magnetic:true,link:true,grid:'frames',snapped:null,pointers:new Map()};
 try{const saved=JSON.parse(localStorage.getItem('jaw-timeline-preferences-v1')||'null');if(saved){for(const key of ['magnetic','link'])if(typeof saved[key]==='boolean')timelineView[key]=saved[key];if(['frames','.01','.05','.1'].includes(saved.grid))timelineView.grid=saved.grid;}}catch{}
 let serial=0,activeId=null,videoResult=null,drag=null,wavePeaks=[],lastTick=0,playback;
@@ -39,7 +49,7 @@ function refresh(){for(const [id,bg,fg] of [['darkTheme','#000000','#ffffff'],['
  const estimated=state.words.filter(needsReview).length;$('timingSummary').hidden=!hasWords;$('timingSummary').textContent=estimated?estimated+' estimated timing'+(estimated===1?'':'s')+' to review. Amber words have estimated timings.':'No estimated timings awaiting review.';$('nextEstimate').disabled=busy||!estimated;$('markReviewed').disabled=busy||!word||!needsReview(selected());
  $('play').textContent=state.playing?'❚❚ Pause':'▶ Play';$('wordCount').textContent=hasWords?'· '+state.words.length+' words':'';
  $('scrubber').max=state.duration||1;$('progressBox').hidden=!busy||!!microphoneSession;$('cancel').disabled=!busy||!state.job;refreshMicrophoneControls();refreshCustomFontControls();refreshTimelineControls();
- JAWExportSettings.refresh(state);playback?.sync();
+ JAWExportSettings.refresh(state);refreshCloudControls();playback?.sync();
 }
 function position(){return playback?playback.position():state.position;}
 function pause(){playback?.pause();}
@@ -133,22 +143,57 @@ async function exportVideo(){
  const spec=JAWExportSettings.formats[exportFormat],job=beginJob();invalidateVideo();progress(0,'Preparing '+spec.label+'…');
  try{
   await ensureSelectedFont(job.signal);check(job.signal);
-  const canvas=document.createElement('canvas');[canvas.width,canvas.height]=videoDimensions(state.settings.aspect,resolution);
-  const videoRenderer=KineticRenderer.create(canvas);videoRenderer.setProject(state.words,state.settings);
-  const blob=await LyricVideoExport.exportVideo({canvas,audioBuffer:state.audio,duration:state.duration,fps,format:exportFormat,transparent,renderFrame:t=>videoRenderer.render(t),signal:job.signal,onProgress:progress});
+  const [width,height]=videoDimensions(state.settings.aspect,resolution);let route=cloudRoute(),exportNote='';if(route.error)throw Error(route.error);
+  const fonts=customFonts.get(state.settings.font)?.cloudFonts||[];
+  if(route.target==='cloud'){
+   progress(0,'Checking cloud renderer and font…');
+   const capabilities=await JAWCloudExport.capabilities({endpoint:cloudConnection.endpoint,accessKey:cloudConnection.accessKey,signal:job.signal});check(job.signal);
+   if(capabilities.rendererVersion&&capabilities.rendererVersion!==globalThis.JAW_RENDERER_VERSION)throw Error('The cloud renderer needs an update to match this version of JAA.');
+   if(!fonts.some(font=>font.family===state.settings.font)&&!capabilities.fontFamilies.includes(state.settings.font)){
+    const localSupported=!LyricVideoExport.isMobileDevice()||(Math.max(width,height)<=1920&&fps<=30);
+    if(cloudConnection.mode==='auto'&&localSupported){exportNote=`Rendered on this device because the server does not have ${state.settings.font}.`;route={target:'local'};progress(0,exportNote);}
+    else throw Error(`The server does not have ${state.settings.font}. Upload that font in JAA or install it on the renderer before using cloud export.`);
+   }
+  }
+  let blob;
+  if(route.target==='cloud'){
+   const project={schemaVersion:1,rendererVersion:globalThis.JAW_RENDERER_VERSION,words:state.words.map(({id,text,start,end,emphasis,breakBefore})=>({id,text,start,end,emphasis,breakBefore})),settings:{...state.settings},duration:state.duration,fonts};
+   blob=await JAWCloudExport.exportVideo({endpoint:cloudConnection.endpoint,accessKey:cloudConnection.accessKey,project,audioFile:await cloudAudioFile(job.signal),signal:job.signal,onProgress:progress});
+  }else{
+   const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+   const videoRenderer=KineticRenderer.create(canvas);videoRenderer.setProject(state.words,state.settings);
+   blob=await LyricVideoExport.exportVideo({canvas,audioBuffer:state.audio,duration:state.duration,fps,format:exportFormat,transparent,renderFrame:t=>videoRenderer.render(t),signal:job.signal,onProgress:progress});
+  }
   check(job.signal);const name=filename(spec.extension),url=URL.createObjectURL(blob);
   videoResult={blob,url};
   const canPreview=exportFormat!=='mov'&&!!$('resultVideo').canPlayType(spec.mime);
   $('resultVideo').hidden=!canPreview;$('resultVideo').classList.toggle('is-transparent',transparent);if(canPreview)$('resultVideo').src=url;
-  $('download').href=url;$('download').download=name;$('download').textContent='Download again';
-  $('resultInfo').textContent=`${canvas.width} × ${canvas.height} · ${fps} fps · ${spec.label}${transparent?' · Transparent':''} · ${(blob.size/1048576).toFixed(1)} MB · ${format(state.duration)}`+(canPreview?'':' · Open the downloaded video in a compatible video editor.');
+  $('download').href=url;$('download').download=name;$('download').textContent='Download again';$('download').removeAttribute('target');$('download').removeAttribute('rel');
+  $('resultInfo').textContent=`${width} × ${height} · ${fps} fps · ${spec.label}${transparent?' · Transparent':''} · ${(blob.size/1048576).toFixed(1)} MB · ${format(state.duration)} · ${route.target==='cloud'?'Cloud export':'Device export'}`+(canPreview?'':' · Open the downloaded video in a compatible video editor.');
   $('result').hidden=false;
   // Use a separate download URL so editing the project cannot revoke a file
   // that the browser has just started downloading. Keep the result link as a retry.
-  try{saveBlob(blob,name);status('Export complete. The download has been sent to your browser.');}
+  try{saveBlob(blob,name);status('Export complete. The download has been sent to your browser.'+(exportNote?' '+exportNote:''));}
   catch(error){status('Your video is ready, but the download could not start. Use Download again.',true);}
- }catch(e){status(e.name==='AbortError'?'Export canceled. Your edits are still here.':'Export failed. '+e.message,e.name!=='AbortError');}
+ }catch(e){
+  if(e.downloadUrl){
+   videoResult={url:e.downloadUrl};$('resultVideo').hidden=true;
+   $('download').href=e.downloadUrl;$('download').download=filename(spec.extension);$('download').textContent='Download completed video';$('download').target='_blank';$('download').rel='noreferrer';
+   $('resultInfo').textContent='Cloud render complete. Download the existing video directly while it is still available on the server.';$('result').hidden=false;
+   status('Your cloud video is ready, but the browser download did not finish. Use Download completed video to try again without rendering again.',true);
+  }else status(e.name==='AbortError'?'Export canceled. Your edits are still here.':'Export failed. '+e.message,e.name!=='AbortError');
+ }
  finally{endJob(job);drawNow();}
+}
+async function cloudAudioFile(signal){
+ if(state.file)return state.file;
+ const audio=state.audio,channels=Math.min(2,audio.numberOfChannels),length=audio.length,size=length*channels*2;
+ if(size>100*1048576)throw Error('The audio is too large for cloud export. Import a compressed audio file smaller than 100 MB.');
+ const header=new ArrayBuffer(44),view=new DataView(header),write=(offset,text)=>{for(let i=0;i<text.length;i++)view.setUint8(offset+i,text.charCodeAt(i));};
+ write(0,'RIFF');view.setUint32(4,36+size,true);write(8,'WAVE');write(12,'fmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,channels,true);view.setUint32(24,audio.sampleRate,true);view.setUint32(28,audio.sampleRate*channels*2,true);view.setUint16(32,channels*2,true);view.setUint16(34,16,true);write(36,'data');view.setUint32(40,size,true);
+ const parts=[header],planes=Array.from({length:channels},(_,channel)=>audio.getChannelData(channel));
+ for(let start=0;start<length;start+=48000){check(signal);const end=Math.min(length,start+48000),bytes=new ArrayBuffer((end-start)*channels*2),samples=new DataView(bytes);for(let i=start;i<end;i++)for(let c=0;c<channels;c++){const sample=clamp(planes[c][i],-1,1);samples.setInt16(((i-start)*channels+c)*2,Math.round(sample*(sample<0?32768:32767)),true);}parts.push(bytes);await new Promise(resolve=>setTimeout(resolve,0));}
+ return new File(parts,'audio.wav',{type:'audio/wav'});
 }
 function saveBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);try{a.click();}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}}
 function projectData(){return {app:'Just Animate Whatever',version:3,words:state.words.map(({id,...w})=>w),settings:state.settings,customFont:selectedFontData(),audioName:state.audioName,duration:state.duration,outputName:$('outputName').value};}
@@ -447,15 +492,15 @@ function parseFontRules(css,family,base){
   if(!urls.length)throw Error('The stylesheet does not contain a downloadable HTTPS font.');const descriptors={};for(const [cssName,descriptor] of [['font-style','style'],['font-weight','weight'],['font-stretch','stretch'],['unicode-range','unicodeRange']]){const value=style.getPropertyValue(cssName).trim();if(value)descriptors[descriptor]=value;}return {urls:urls.slice(0,4),descriptors};});
 }
 async function loadCustomFontRecord(record,signal){
- if(typeof FontFace!=='function'||!document.fonts)throw Error('Custom fonts need a current Chrome, Edge or Safari browser.');check(signal);let faces=[];
- if(record.kind==='file')faces=[await makeLoadedFont(record.id,fontDataToBytes(record.data),{},signal)];
+ if(typeof FontFace!=='function'||!document.fonts)throw Error('Custom fonts need a current Chrome, Edge or Safari browser.');check(signal);let faces=[],cloudFonts=[];
+ if(record.kind==='file'){faces=[await makeLoadedFont(record.id,fontDataToBytes(record.data),{},signal)];cloudFonts=[{family:record.id,data:record.data,descriptors:{}}];}
  else{const downloaded=await fetchFontBytes(record.source,record.kind==='css'?MAX_FONT_CSS_BYTES:MAX_FONT_BYTES,signal);
-  if(record.kind==='url'||fontMagic(downloaded.bytes)){faces=[await makeLoadedFont(record.id,downloaded.bytes,{},signal)];record={...record,kind:'url'};}
+  if(record.kind==='url'||fontMagic(downloaded.bytes)){faces=[await makeLoadedFont(record.id,downloaded.bytes,{},signal)];cloudFonts=[{family:record.id,data:bytesToFontData(downloaded.bytes),descriptors:{}}];record={...record,kind:'url'};}
   else{const rules=parseFontRules(new TextDecoder().decode(downloaded.bytes),record.family,downloaded.url);let total=0;const downloads=new Map();
-   for(const rule of rules){let loaded=null,lastError;for(const url of rule.urls){try{let bytes=downloads.get(url);if(!bytes){bytes=(await fetchFontBytes(url,MAX_FONT_BYTES,signal)).bytes;total+=bytes.length;if(total>20*1048576)throw Error('This font family is too large. Choose fewer variants or upload one font file.');downloads.set(url,bytes);}loaded=await makeLoadedFont(record.id,bytes,rule.descriptors,signal);break;}catch(error){check(signal);lastError=error;}}if(!loaded)throw lastError;faces.push(loaded);}
+   for(const rule of rules){let loaded=null,lastError;for(const url of rule.urls){try{let bytes=downloads.get(url);if(!bytes){bytes=(await fetchFontBytes(url,MAX_FONT_BYTES,signal)).bytes;total+=bytes.length;if(total>20*1048576)throw Error('This font family is too large. Choose fewer variants or upload one font file.');downloads.set(url,bytes);}loaded=await makeLoadedFont(record.id,bytes,rule.descriptors,signal);cloudFonts.push({family:record.id,data:bytesToFontData(bytes),descriptors:rule.descriptors});break;}catch(error){check(signal);lastError=error;}}if(!loaded)throw lastError;faces.push(loaded);}
   }
  }
- check(signal);return {record,faces};
+ check(signal);return {record,faces,cloudFonts};
 }
 function registerCustomFont(entry){
  const previous=customFonts.get(entry.record.id);if(previous)for(const face of previous.faces)document.fonts.delete(face);for(const face of entry.faces)document.fonts.add(face);customFonts.set(entry.record.id,entry);
@@ -476,6 +521,18 @@ async function useCustomFont(file){
  finally{endJob(job);}
 }
 $('uploadFont').onclick=()=>$('fontFile').click();$('fontFile').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file)void useCustomFont(file);};$('loadFont').onclick=()=>{void useCustomFont();};
+
+$('cloudEndpoint').value=cloudConnection.endpoint;$('cloudAccessKey').value=cloudConnection.accessKey;
+function saveCloudPreferences(){
+ try{localStorage.setItem('jaw-cloud-export-v1',JSON.stringify({mode:cloudConnection.mode,thresholdSeconds:cloudConnection.thresholdSeconds,endpoint:cloudConnection.endpoint}));sessionStorage.setItem('jaw-cloud-access-v1',cloudConnection.accessKey);}catch{}
+ syncSettings();rebuild();refresh();scheduleAutosave();
+}
+$('exportLocation').onchange=()=>{cloudConnection.mode=$('exportLocation').value;saveCloudPreferences();};
+$('cloudThreshold').onchange=()=>{cloudConnection.thresholdSeconds=Number($('cloudThreshold').value);saveCloudPreferences();};
+$('saveCloudConnection').onclick=()=>{
+ try{const value=$('cloudEndpoint').value.trim();cloudConnection.endpoint=value?JAWCloudExport.normalizeEndpoint(value):'';cloudConnection.accessKey=$('cloudAccessKey').value.trim();saveCloudPreferences();$('cloudConnectionStatus').textContent=cloudConnection.endpoint&&cloudConnection.accessKey?'Connection saved. The access code is kept only for this tab session.':'Cloud export is not connected. Automatic exports use this device.';}
+ catch(error){$('cloudConnectionStatus').textContent=error.message;}
+};
 
 playback=JAWPlayback.create({state,format,refresh,draw:drawNow,onSeek:t=>ensureWindow(t,true),status,getRate:()=>Number($('speed').value)});
 syncSettings();rebuild();renderWords();renderLane();refresh();requestAnimationFrame(tick);
