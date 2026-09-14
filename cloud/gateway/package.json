@@ -1,0 +1,9 @@
+{
+  "name": "jaa-replicate-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Authenticated streaming API for JAA's Replicate video renderer",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.cjs", "test": "node --test ../../tests/cloud-gateway.test.cjs" },
+  "dependencies": { "busboy": "1.6.0" }
+}

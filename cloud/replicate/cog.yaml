@@ -1,0 +1,14 @@
+build:
+  gpu: false
+  python_version: "3.11"
+  python_packages:
+    - "playwright==1.55.0"
+  system_packages:
+    - "ffmpeg"
+    - "fontconfig"
+    - "fonts-dejavu-core"
+  run:
+    - "python -m playwright install --with-deps chromium"
+predict: "predict.py:Predictor"
+# Synchronous predict uses Cog's default one prediction per instance.
+# Keep COG_MAX_CONCURRENCY=1; setup rejects any other override.
