@@ -2,6 +2,7 @@
 
 A browser lyric animation editor, published at https://jrdn-r.github.io/jaa/.
 
+- Upload a background image or video above the preview, then choose **Adjust background**. Drag to position, pinch/scroll or use the slider to zoom, and **Lock background** to keep the framing separate from lyrics. **Fit whole image** shows the entire source; **Fill frame** resets to centered cover. Background videos loop silently in sync with the soundtrack, including frame-by-frame exports. Text has a soft dark outline and shadow for readability. Saved projects embed background media and framing; the lightweight autosave requires reselecting the background file. Transparency removes the base color; remove uploaded media for a text-only transparent export.
 - Skip five seconds with the playback buttons, preview arrow keys, or a double tap on either half of the preview. Playback uses a real audio element and Media Session so supported system media controls can pause, resume, and seek after playback starts on the page.
 - Follow current word also updates the selected-word editor and timeline selection during playback. It holds the selection while you use the editor controls or pause, and keeps the last selected word during gaps. Turn it off to select words manually while listening.
 - Desktop uses the full page width and supports normal browser zoom. Only iOS keeps the page scale fixed; timeline zoom remains available on every device.

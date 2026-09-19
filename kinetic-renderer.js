@@ -13,6 +13,7 @@
     const ctx = canvas.getContext('2d', {alpha:true});
     if (!ctx) throw new Error('This browser cannot draw the video preview.');
     let settings = {...defaults}, words = [], groups = [], layoutWidth = 0, layoutHeight = 0;
+    let backgroundSource = null, backgroundTransform = {zoom:1,x:0,y:0};
     const metrics = new Map();
 
     function font(size) {
@@ -149,13 +150,39 @@
         .sort((a,b)=>a.start-b.start);
       build();
     }
+    // Media has an independent transform. Centered cover is zoom=1; offsets
+    // use canvas fractions so preview and export frame sizes compose identically.
+    function setBackground(source, transform={}) {
+      const number=(value,fallback,min,max)=>Number.isFinite(Number(value))?clamp(Number(value),min,max):fallback;
+      backgroundSource=source || null;
+      backgroundTransform={zoom:number(transform.zoom,1,.1,5),x:number(transform.x,0,-5,5),y:number(transform.y,0,-5,5)};
+    }
+    function drawBackground() {
+      const source=backgroundSource;
+      if(!source || source.complete===false || (typeof source.readyState==='number' && source.readyState<2))return;
+      const width=source.videoWidth ?? source.naturalWidth ?? source.width;
+      const height=source.videoHeight ?? source.naturalHeight ?? source.height;
+      const W=canvas.width,H=canvas.height;
+      if(!(width>0 && height>0 && W>0 && H>0))return;
+      const {zoom,x,y}=backgroundTransform,scale=Math.max(W/width,H/height)*zoom;
+      const drawWidth=width*scale,drawHeight=height*scale;
+      ctx.drawImage(source,(W-drawWidth)/2+x*W,(H-drawHeight)/2+y*H,drawWidth,drawHeight);
+    }
     function drawItem(it, alpha=1) {
       if(alpha<=0) return;
       const m=measurement(it.text);
       ctx.save();ctx.translate(it.x,it.y);ctx.rotate(it.r);ctx.globalAlpha=clamp(alpha);
       ctx.font=font(it.size);ctx.textAlign='center';ctx.textBaseline='alphabetic';
+      const baseline=(m.a-m.d)*it.size/200;
+      // A soft dark halo follows every glyph, including accent words. Draw it
+      // behind the sharp fill so busy images never soften the lettering itself.
+      ctx.lineJoin='round';ctx.miterLimit=2;ctx.lineWidth=Math.max(1,it.size*.018);
+      ctx.strokeStyle='rgba(0,0,0,0.88)';ctx.shadowColor='rgba(0,0,0,0.82)';
+      ctx.shadowBlur=Math.max(1.5,it.size*.05);ctx.shadowOffsetX=0;ctx.shadowOffsetY=it.size*.009;
+      ctx.strokeText(it.text,0,baseline);
+      ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;
       ctx.fillStyle=it.word.emphasis?settings.accent:settings.foreground;
-      ctx.fillText(it.text,0,(m.a-m.d)*it.size/200);ctx.restore();
+      ctx.fillText(it.text,0,baseline);ctx.restore();
     }
     function drawGroup(g,localIndex,t,alpha=1,exit=0) {
       const motion=clamp(Number(settings.motion)||0,0,2),W=canvas.width,H=canvas.height;
@@ -211,6 +238,7 @@
       ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;
       ctx.clearRect(0,0,canvas.width,canvas.height);
       if (!settings.transparent) { ctx.fillStyle=settings.background;ctx.fillRect(0,0,canvas.width,canvas.height); }
+      drawBackground();
       if(!groups.length){emptyPoster();return;}
       // Binary search makes playback cost independent of total lyric length.
       let lo=0,hi=groups.length-1,index=-1;
@@ -232,7 +260,7 @@
       drawGroup(g,wi,t,alpha);
     }
     setProject([],{});
-    return {setProject,render};
+    return {setProject,setBackground,render};
   }
   window.KineticRenderer=Object.freeze({create});
 })();

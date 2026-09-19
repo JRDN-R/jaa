@@ -1,0 +1,12 @@
+.background-panel{padding:14px 18px;border-top:1px solid #343434;border-bottom:1px solid #343434;background:#171a18}
+.background-toolbar{gap:8px;flex-wrap:wrap}
+.background-name{margin:8px 0 0;overflow-wrap:anywhere}
+#backgroundControls{margin-top:12px}
+#backgroundControls[hidden]{display:none}
+.background-zoom{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.background-zoom label{margin:0;font-size:12px;white-space:nowrap}
+.background-zoom input{flex:1;min-width:35px}
+.background-zoom output{min-width:44px;text-align:right;font:12px ui-monospace,monospace}
+#preview.background-editing{cursor:grab;touch-action:none;outline:2px solid #87a98b;outline-offset:-2px}
+#preview.background-editing:active{cursor:grabbing}
+@media(max-width:560px){.background-panel{padding:12px}.background-zoom{gap:6px}.background-zoom label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.background-toolbar button{flex:1 1 auto}}

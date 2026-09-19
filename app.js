@@ -7,7 +7,7 @@ const settingsKeys=['exportFormat','resolution','transparent','fps','aspect','st
 const state={words:[],settings:{exportFormat:'mp4',resolution:'1080',transparent:false,fps:24,aspect:'wide',style:'kinetic',font:'Arial Black',background:'#000000',foreground:'#ffffff',accent:'#87a98b',motion:1,groupSize:5,uppercase:false},audio:null,file:null,audioName:'',duration:0,selected:null,position:0,playing:false,busy:false,job:null,page:0,history:[],future:[],windowStart:0};
 const timelineView={span:Number($('zoom').value)||8,follow:true,magnetic:true,link:true,grid:'frames',snapped:null,pointers:new Map()};
 try{const saved=JSON.parse(localStorage.getItem('jaw-timeline-preferences-v1')||'null');if(saved){for(const key of ['magnetic','link'])if(typeof saved[key]==='boolean')timelineView[key]=saved[key];if(['frames','.01','.05','.1'].includes(saved.grid))timelineView.grid=saved.grid;}}catch{}
-let serial=0,activeId=null,videoResult=null,drag=null,wavePeaks=[],lastTick=0,playback;
+let serial=0,activeId=null,videoResult=null,drag=null,wavePeaks=[],lastTick=0,playback,backgroundEntry=null,backgroundRecord=null,backgroundControls;
 const renderer=KineticRenderer.create($('preview'));
 const abortError=()=>new DOMException('Canceled','AbortError');
 const check=signal=>{if(signal?.aborted)throw abortError();};
@@ -28,24 +28,24 @@ function restoreSnapshot(value){const data=JSON.parse(value);state.words=data.wo
 function undo(){if(state.busy||!state.history.length)return;state.future.push(snapshot());restoreSnapshot(state.history.pop());}
 function redo(){if(state.busy||!state.future.length)return;state.history.push(snapshot());restoreSnapshot(state.future.pop());}
 function syncSettings(){JAWExportSettings.normalize(state.settings);for(const key of settingsKeys)if(['uppercase','transparent'].includes(key))$(key).checked=state.settings[key];else $(key).value=state.settings[key];}
-function rebuild(){JAWExportSettings.normalize(state.settings);const [w,h]=videoDimensions(state.settings.aspect);if($('preview').width!==w||$('preview').height!==h){$('preview').width=w;$('preview').height=h;}$('preview').style.aspectRatio=w+'/'+h;$('preview').style.maxWidth=(510*w/h)+'px';renderer.setProject(state.words,state.settings);renderer.render(position());}
+function rebuild(){JAWExportSettings.normalize(state.settings);const [w,h]=videoDimensions(state.settings.aspect);if($('preview').width!==w||$('preview').height!==h){$('preview').width=w;$('preview').height=h;}$('preview').style.aspectRatio=w+'/'+h;$('preview').style.maxWidth=(510*w/h)+'px';renderer.setProject(state.words,state.settings);renderer.setBackground(backgroundEntry?.source,backgroundRecord?.transform);renderer.render(position());}
 function refresh(){for(const [id,bg,fg] of [['darkTheme','#000000','#ffffff'],['lightTheme','#f4f4f1','#111111']]){const active=state.settings.background.toLowerCase()===bg&&state.settings.foreground.toLowerCase()===fg;$(id).classList.toggle('theme-active',active);$(id).setAttribute('aria-pressed',String(active));}const hasAudio=!!state.audio,busy=state.busy,hasWords=!!state.words.length,word=!!selected();
  for(const id of ['upload','importTranscript','transcriptFile','demo','loadProject','pasteLyrics','insertWord','audioFile','projectFile','includeAudio','keyOverride','outputName','search','reviewOnly','zoom','speed',...settingsKeys,'lightTheme','darkTheme'])$(id).disabled=busy;
  for(const id of ['play','restart','prevFrame','nextFrame','scrubber'])$(id).disabled=busy||!state.duration;
- $('transcribe').disabled=busy||!hasAudio;$('export').disabled=busy||!hasAudio||!hasWords;$('saveProject').disabled=busy||!hasWords;$('saveTimings').disabled=busy||!hasWords;$('shiftAll').disabled=busy||!hasWords;$('saveSrt').disabled=busy||!hasWords;
+ $('transcribe').disabled=busy||!hasAudio;$('export').disabled=busy||!hasAudio||!hasWords;$('saveProject').disabled=busy||(!hasWords&&!backgroundEntry);$('saveTimings').disabled=busy||!hasWords;$('shiftAll').disabled=busy||!hasWords;$('saveSrt').disabled=busy||!hasWords;
  for(const id of ['wordText','wordStart','wordEnd','emphasis','breakBefore','setStart','setEnd','earlier','later','split','deleteWord'])$(id).disabled=busy||!word;
  $('merge').disabled=busy||!word||state.words.indexOf(selected())===state.words.length-1;$('audition').disabled=busy||!word||!hasAudio;
  $('undo').disabled=busy||!state.history.length;$('redo').disabled=busy||!state.future.length;
  const estimated=state.words.filter(needsReview).length;$('timingSummary').hidden=!hasWords;$('timingSummary').textContent=estimated?estimated+' estimated timing'+(estimated===1?'':'s')+' to review. Amber words have estimated timings.':'No estimated timings awaiting review.';$('nextEstimate').disabled=busy||!estimated;$('markReviewed').disabled=busy||!word||!needsReview(selected());
  $('play').textContent=state.playing?'❚❚ Pause':'▶ Play';$('wordCount').textContent=hasWords?'· '+state.words.length+' words':'';
  $('scrubber').max=state.duration||1;$('progressBox').hidden=!busy||!!microphoneSession;$('cancel').disabled=!busy||!state.job;refreshMicrophoneControls();refreshCustomFontControls();refreshTimelineControls();
- JAWExportSettings.refresh(state);playback?.sync();
+ JAWExportSettings.refresh(state);playback?.sync();backgroundControls?.refresh();if(backgroundEntry&&state.settings.transparent)$('transparencyHelp').textContent='Transparency removes the base color. Remove your uploaded background for a text-only transparent video.';
 }
 function position(){return playback?playback.position():state.position;}
 function pause(){playback?.pause();}
 function play(until=Infinity){return playback?.play(until);}
 function seek(t){playback?.seek(t);}
-function drawNow(){const p=position();renderer.render(p);$('scrubber').value=p;$('clock').textContent=format(p)+' / '+format(state.duration);drawPlayhead(p);playback?.draw();highlight(p);}
+function drawNow(){const p=position();if(!state.busy)backgroundEntry?.sync(p,state.playing,Number($('speed').value));renderer.render(p);$('scrubber').value=p;$('clock').textContent=format(p)+' / '+format(state.duration);drawPlayhead(p);playback?.draw();highlight(p);}
 function ensureWindow(t,force=false){if(!timelineView.follow&&!force)return;const span=timelineView.span,max=Math.max(0,state.duration-span);if(t<state.windowStart||t>state.windowStart+span){state.windowStart=clamp(t-span*.2,0,max);renderLane();}}
 function followSelectedWord(word){
  // Keep edits attached to their word, and leave manual selections alone while paused.
@@ -144,8 +144,8 @@ async function exportVideo(){
  try{
   await ensureSelectedFont(job.signal);check(job.signal);
   const canvas=document.createElement('canvas');[canvas.width,canvas.height]=videoDimensions(state.settings.aspect,resolution);
-  const videoRenderer=KineticRenderer.create(canvas);videoRenderer.setProject(state.words,state.settings);
-  const blob=await LyricVideoExport.exportVideo({canvas,audioBuffer:state.audio,duration:state.duration,fps,format:exportFormat,transparent,renderFrame:t=>videoRenderer.render(t),signal:job.signal,onProgress:progress});
+  const videoRenderer=KineticRenderer.create(canvas);videoRenderer.setProject(state.words,state.settings);videoRenderer.setBackground(backgroundEntry?.source,backgroundRecord?.transform);
+  const blob=await LyricVideoExport.exportVideo({canvas,audioBuffer:state.audio,duration:state.duration,fps,format:exportFormat,transparent,renderFrame:async t=>{await backgroundEntry?.seek(t,job.signal);check(job.signal);videoRenderer.render(t);},signal:job.signal,onProgress:progress});
   check(job.signal);const name=filename(spec.extension),url=URL.createObjectURL(blob);
   videoResult={blob,url};
   const canPreview=exportFormat!=='mov'&&!!$('resultVideo').canPlayType(spec.mime);
@@ -161,21 +161,21 @@ async function exportVideo(){
  finally{endJob(job);drawNow();}
 }
 function saveBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);try{a.click();}finally{a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}}
-function projectData(){return {app:'Just Animate Whatever',version:3,words:state.words.map(({id,...w})=>w),settings:state.settings,customFont:selectedFontData(),audioName:state.audioName,duration:state.duration,outputName:$('outputName').value};}
-const readDataURL=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(Error('Could not include the audio.'));r.readAsDataURL(blob);});
-async function saveProject(){if(state.busy)return;const job=beginJob();progress(0,'Saving project…');try{const data=projectData();if($('includeAudio').checked&&state.file)data.audioData=await readDataURL(state.file);check(job.signal);saveBlob(new Blob([JSON.stringify(data)],{type:'application/json'}),filename('.lyric.json'));status(data.audioData?'Project saved with audio and all edits.':'Project saved. Reselect the same audio when you reopen it.');}catch(e){status(e.name==='AbortError'?'Save canceled.':e.message,e.name!=='AbortError');}finally{endJob(job);}}
+function projectData(){return {app:'Just Animate Whatever',version:4,backgroundMedia:backgroundRecord?{...backgroundRecord,transform:{...backgroundRecord.transform}}:null,words:state.words.map(({id,...w})=>w),settings:state.settings,customFont:selectedFontData(),audioName:state.audioName,duration:state.duration,outputName:$('outputName').value};}
+const readDataURL=blob=>new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(Error('Could not include the media.'));r.readAsDataURL(blob);});
+async function saveProject(){if(state.busy)return;const job=beginJob();progress(0,'Saving project…');try{const data=projectData();if(backgroundEntry){data.backgroundMedia.dataURL=await readDataURL(backgroundEntry.file);check(job.signal);}if($('includeAudio').checked&&state.file)data.audioData=await readDataURL(state.file);check(job.signal);saveBlob(new Blob([JSON.stringify(data)],{type:'application/json'}),filename('.lyric.json'));status('Project saved'+(data.backgroundMedia?.dataURL?' with your background and framing':'')+'. '+(data.audioData?'Audio and all edits are included.':'Reselect the same audio when you reopen it.')); }catch(e){status(e.name==='AbortError'?'Save canceled.':e.message,e.name!=='AbortError');}finally{endJob(job);}}
 function validateProject(data){const words=Array.isArray(data)?data:data?.words;if(!Array.isArray(words)||words.length>30000)throw Error('Choose a lyric project or a JSON file containing a words array.');const list=words.map(w=>{if(!w||typeof w.text!=='string'||!w.text.trim()||w.text.length>500||!Number.isFinite(w.start)||!Number.isFinite(w.end)||w.start<0||w.end<=w.start)throw Error('A word in this file has invalid text or timing.');const word=makeWord(w);if(word.end<=word.start)throw Error('Each word must last at least 0.001 seconds.');return word;});return list;}
-async function openProject(file){if(!file||state.busy)return;const job=beginJob();progress(0,'Opening file…');try{const raw=await LyricImport.readText(file);check(job.signal);
+async function openProject(file){if(!file||state.busy)return;const job=beginJob();let preparedBackground=null;progress(0,'Opening file…');try{const raw=await LyricImport.readText(file);check(job.signal);
  // Both file buttons accept subtitles. Keep the same job through decoding and
  // import so cancellation works and a second upload cannot race this one.
  if(/\.(?:srt|vtt|txt)$/i.test(file.name)||!/^\s*[[{]/.test(raw)){await installTranscript(raw,file,job);return;}
  const data=JSON.parse(raw);const words=validateProject(data);let audio=null,audioFile=null;
  if(data.audioData){if(typeof data.audioData!=='string'||!/^data:(audio\/|video\/|application\/octet-stream)[^,]*;base64,/i.test(data.audioData))throw Error('The project contains an unsupported audio attachment.');const blob=await (await fetch(data.audioData)).blob();audioFile=new File([blob],String(data.audioName||'Project audio'),{type:blob.type});audio=await decodeAudio(audioFile,job.signal,progress);check(job.signal);}
- const duration=audio?.duration||Math.max(Number(data.duration)||0,...words.map(w=>w.end));if(duration>86400||words.some(w=>w.end>duration+.001))throw Error('Word timings exceed the audio length.');check(job.signal);const projectFont=await prepareProjectFont(data,job.signal);check(job.signal);if(projectFont)registerCustomFont(projectFont);state.history=[];state.future=[];state.words=words;state.audio=audio;state.file=audioFile;state.audioName=String(data.audioName||'Project audio');state.duration=duration;state.position=0;state.windowStart=0;state.selected=words[0]?.id||null;state.page=0;
+ const duration=audio?.duration||Math.max(Number(data.duration)||0,...words.map(w=>w.end));if(duration>86400||words.some(w=>w.end>duration+.001))throw Error('Word timings exceed the audio length.');check(job.signal);const projectFont=await prepareProjectFont(data,job.signal);check(job.signal);preparedBackground=await JAWBackgroundMedia.prepareProject(data.backgroundMedia,job.signal);check(job.signal);if(projectFont)registerCustomFont(projectFont);installBackground(preparedBackground,data.backgroundMedia);preparedBackground=null;state.history=[];state.future=[];state.words=words;state.audio=audio;state.file=audioFile;state.audioName=String(data.audioName||'Project audio');state.duration=duration;state.position=0;state.windowStart=0;state.selected=words[0]?.id||null;state.page=0;
  Object.assign(state.settings,{exportFormat:data.settings?.exportFormat,resolution:data.settings?.resolution,transparent:data.settings?.transparent});state.settings.fps=normalizeFps(data.settings?.fps);state.settings.font=projectFont?.record.id||(builtinFonts.has(data.settings?.font)?data.settings.font:'Arial Black');
  if(data.settings)for(const key of settingsKeys){const value=data.settings[key];if(key==='fps')continue;if(['uppercase','transparent'].includes(key)){state.settings[key]=!!value;continue;}if(key==='motion'&&Number.isFinite(value)){state.settings[key]=clamp(value,0,1.5);continue;}if(key==='groupSize'&&Number.isFinite(value)){state.settings[key]=clamp(Math.round(value),3,8);continue;}if(['background','foreground','accent'].includes(key)&&/^#[a-f0-9]{6}$/i.test(value)){state.settings[key]=value;continue;}if($(key).tagName==='SELECT'&&[...$(key).options].some(o=>o.value===value))state.settings[key]=value;}
- $('outputName').value=String(data.outputName||'My lyric video').slice(0,100);$('audioName').textContent=audio?state.audioName+' · '+format(duration):'Project loaded · Add the original audio to hear or export it.';syncSettings();buildPeaks();changed();drawNow();status(audio?'Project opened with audio.':'Words and settings restored. Add the original audio to continue.');
- }catch(e){status(e.name==='AbortError'?'Open canceled.':e.message,e.name!=='AbortError');}finally{endJob(job);}}
+ $('outputName').value=String(data.outputName||'My lyric video').slice(0,100);$('audioName').textContent=audio?state.audioName+' · '+format(duration):'Project loaded · Add the original audio to hear or export it.';syncSettings();buildPeaks();changed();drawNow();status((audio?'Project opened with audio.':'Words and settings restored. Add the original audio to continue.')+(backgroundRecord&&!backgroundEntry?' Upload the saved background again to restore it.':''));
+ }catch(e){status(e.name==='AbortError'?'Open canceled.':e.message,e.name!=='AbortError');}finally{preparedBackground?.dispose();endJob(job);drawNow();}}
 let autosaveTimer;
 function scheduleAutosave(){clearTimeout(autosaveTimer);autosaveTimer=setTimeout(()=>{try{localStorage.setItem('jaw-lyrics-draft-v1',JSON.stringify(projectData()));}catch{}},500);}
 function demo(){if(state.busy)return;pause();const rate=48000,length=8*rate,b=new AudioBuffer({numberOfChannels:2,length,sampleRate:rate});for(let c=0;c<2;c++){const data=b.getChannelData(c);for(let i=0;i<length;i++){const t=i/rate,beat=t%.5;data[i]=Math.sin(2*Math.PI*220*t)*.04*Math.exp(-beat*18);}}const words='animating text like this can be challenging but it does not have to be'.split(' ');const timings=[.35,.7,1.15,1.5,2,2.35,2.7,3.4,4.1,4.45,4.8,5.4,5.8,6.2];const wav=stereoWav(b);installAudio(b,new File([wav],'Animation demo.wav',{type:'audio/wav'}),'Animation demo · Soft click track, no vocals');state.words=words.map((text,i)=>makeWord({text,start:timings[i],end:timings[i]+(i===6?.55:.32),emphasis:['but','not'].includes(text),breakBefore:i===7||i===10}));state.selected=state.words[0].id;changed();status('Demo loaded. Press Play to see the motion. This is a click track, without vocals.');}
@@ -297,7 +297,7 @@ for(const event of ['dragenter','dragover','dragleave','drop'])$('drop').addEven
 window.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||document.querySelector('dialog[open]'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?redo():undo();}else if(e.code==='Space'){e.preventDefault();void play();}});
 window.addEventListener('pagehide',()=>{pause();state.job?.abort();});window.addEventListener('beforeunload',e=>{if(state.busy){e.preventDefault();e.returnValue='';}});new ResizeObserver(()=>renderLane()).observe($('timingLane'));
 // Recover text/settings only; source audio and API keys are not kept in local storage.
-try{const draft=JSON.parse(localStorage.getItem('jaw-lyrics-draft-v1')||'null');if(draft?.words?.length){const b=document.createElement('button');b.textContent='Restore last edits';b.className='quiet small';b.onclick=()=>{void openProject(new File([JSON.stringify(draft)],'Draft.json',{type:'application/json'}));b.remove();};$('status').after(b);}}catch{}
+try{const draft=JSON.parse(localStorage.getItem('jaw-lyrics-draft-v1')||'null');if(draft?.words?.length||draft?.backgroundMedia){const b=document.createElement('button');b.textContent='Restore last edits';b.className='quiet small';b.onclick=()=>{void openProject(new File([JSON.stringify(draft)],'Draft.json',{type:'application/json'}));b.remove();};$('status').after(b);}}catch{}
 // Microphone capture uses the same job lock and audio loader as a file upload.
 let microphoneSession=null;
 function microphoneUnavailable(){
@@ -489,6 +489,28 @@ async function useCustomFont(file){
 }
 $('uploadFont').onclick=()=>$('fontFile').click();$('fontFile').onchange=event=>{const file=event.target.files[0];event.target.value='';if(file)void useCustomFont(file);};$('loadFont').onclick=()=>{void useCustomFont();};
 
+// Uploaded media stays outside word/settings history so lyric edits cannot move it.
+function normalizeBackgroundRecord(record,entry){
+ if(!record&&!entry)return null;
+ const t=record?.transform||{},number=(v,f,a,b)=>Number.isFinite(v)?clamp(v,a,b):f;
+ return {name:String(entry?.name||record?.name||'Background').slice(0,250),type:entry?.type||record?.type,locked:record?.locked!==false,transform:{zoom:number(t.zoom,1,.1,5),x:number(t.x,0,-5,5),y:number(t.y,0,-5,5)}};
+}
+function installBackground(entry,record){
+ backgroundEntry?.dispose();backgroundEntry=entry;backgroundRecord=normalizeBackgroundRecord(record,entry);
+ if(entry)entry.onFrame=()=>{if(!state.busy)renderer.render(position());};
+ renderer.setBackground(entry?.source,backgroundRecord?.transform);
+}
+function backgroundChanged(){invalidateVideo();renderer.setBackground(backgroundEntry?.source,backgroundRecord?.transform);drawNow();backgroundControls?.refresh();scheduleAutosave();}
+async function uploadBackground(file){
+ if(!file||state.busy)return;const job=beginJob();let entry=null;progress(0,'Opening background…');
+ try{entry=await JAWBackgroundMedia.prepare(file,job.signal);check(job.signal);
+  const record=backgroundRecord&&!backgroundEntry&&backgroundRecord.name===file.name?backgroundRecord:{locked:true,transform:{zoom:1,x:0,y:0}};
+  installBackground(entry,record);entry=null;backgroundChanged();status('Background added. Choose Adjust background to zoom and position it, then lock it.');
+ }catch(e){status(e.name==='AbortError'?'Background upload canceled.':e.message,e.name!=='AbortError');}
+ finally{entry?.dispose();endJob(job);drawNow();}
+}
+function removeBackground(){if(state.busy)return;installBackground(null,null);backgroundChanged();refresh();status('Background removed.');}
+backgroundControls=JAWBackgroundControls.create({getEntry:()=>backgroundEntry,getRecord:()=>backgroundRecord,isBusy:()=>state.busy,pause,onChange:backgroundChanged,onUpload:uploadBackground,onRemove:removeBackground});
 playback=JAWPlayback.create({state,format,refresh,draw:drawNow,onSeek:t=>ensureWindow(t,true),status,getRate:()=>Number($('speed').value)});
 syncSettings();rebuild();renderWords();renderLane();refresh();requestAnimationFrame(tick);
 })();
