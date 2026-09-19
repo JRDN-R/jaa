@@ -3,6 +3,7 @@
 A browser lyric animation editor, published at https://jrdn-r.github.io/jaa/.
 
 - Skip five seconds with the playback buttons, preview arrow keys, or a double tap on either half of the preview. Playback uses a real audio element and Media Session so supported system media controls can pause, resume, and seek after playback starts on the page.
+- Follow current word also updates the selected-word editor and timeline selection during playback. It holds the selection while you use the editor controls or pause, and keeps the last selected word during gaps. Turn it off to select words manually while listening.
 - The preview floats when scrolled out of view. Move it by the title bar, resize at its lower-right corner, or use arrow keys on either handle. It returns to the page when the original preview comes back into view.
 - Pan the timeline with a drag on empty space, scroll/trackpad, or horizontal slider. Zoom with a two-finger pinch, Ctrl/Command + scroll at the cursor, the zoom menu, or the plus/minus buttons. Manual browsing turns off timeline following until re-enabled.
 - Magnetic snapping supports video-frame, 10 ms, 50 ms, and 100 ms grids and nearby word edges. Hold Alt while dragging to bypass snapping. Exact time inputs remain exact. Adjust surrounding text joins the adjacent words to the edited word while protecting their outer boundaries. Both switches can be disabled. A drag and all neighbor changes form one undo step; canceled drags restore the original words.

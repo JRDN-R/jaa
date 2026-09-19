@@ -45,13 +45,23 @@ function position(){return playback?playback.position():state.position;}
 function pause(){playback?.pause();}
 function play(until=Infinity){return playback?.play(until);}
 function seek(t){playback?.seek(t);}
-function drawNow(){const p=position();renderer.render(p);$('scrubber').value=p;$('clock').textContent=format(p)+' / '+format(state.duration);drawPlayhead(p);playback?.draw();}
+function drawNow(){const p=position();renderer.render(p);$('scrubber').value=p;$('clock').textContent=format(p)+' / '+format(state.duration);drawPlayhead(p);playback?.draw();highlight(p);}
 function ensureWindow(t,force=false){if(!timelineView.follow&&!force)return;const span=timelineView.span,max=Math.max(0,state.duration-span);if(t<state.windowStart||t>state.windowStart+span){state.windowStart=clamp(t-span*.2,0,max);renderLane();}}
-function highlight(p){let word=null;for(const w of state.words){if(w.start>p)break;if(p<w.end)word=w;}const id=word?.id||null;if(activeId===id)return;activeId=id;
+function followSelectedWord(word){
+ // Keep edits attached to their word, and leave manual selections alone while paused.
+ if(!word||word.id===state.selected||!state.playing||state.busy||drag||!$('follow').checked||document.activeElement?.closest('.inspector'))return;
+ state.selected=word.id;renderInspector();
+ // Following changes selection only: no seeking, history entry, or forced timeline pan.
+ for(const el of document.querySelectorAll('#wordList .word, #chips .timing-chip'))el.classList.toggle('selected',el.dataset.id===word.id);
+ refresh();
+}
+function highlight(p){let word=null;for(const w of state.words){if(w.start>p)break;if(p<w.end)word=w;}const id=word?.id||null;
+ // Check even within the same word so following resumes as soon as editing ends.
+ followSelectedWord(word);if(activeId===id)return;activeId=id;
  for(const el of $('wordList').querySelectorAll('.word'))el.classList.toggle('active',el.dataset.id===id);
  if(word&&$('follow').checked&&!$('search').value&&!$('reviewOnly').checked&&!state.busy){const page=Math.floor(state.words.indexOf(word)/60);if(page!==state.page){state.page=page;renderWords();}}
 }
-function tick(now){if(state.playing&&now-lastTick>15){lastTick=now;const p=position();if(p>=Math.min(playback.stopAt,state.duration)){playback.finish();}else{ensureWindow(p);drawNow();highlight(p);}}requestAnimationFrame(tick);}
+function tick(now){if(state.playing&&now-lastTick>15){lastTick=now;const p=position();if(p>=Math.min(playback.stopAt,state.duration)){playback.finish();}else{ensureWindow(p);drawNow();}}requestAnimationFrame(tick);}
 function renderInspector(){const w=selected();$('wordText').value=w?.text||'';$('wordStart').value=w?w.start.toFixed(3):'';$('wordEnd').value=w?w.end.toFixed(3):'';$('emphasis').checked=!!w?.emphasis;$('breakBefore').checked=!!w?.breakBefore;$('timingOrigin').hidden=!w;$('timingOrigin').textContent=w?(w.estimated?(w.timingSource==='audio-estimate'?'Estimated from vocal activity':'Estimated between timing anchors')+(w.reviewed?' · Reviewed':' · Check by listening'):(w.timingSource==='google'?'Google timestamp':w.timingSource==='imported'?'Imported timestamp':'Manually set timing')):'';if(w?.timingSource==='forced-alignment')$('timingOrigin').textContent='Matched to audio'+(w.estimated?(w.reviewed?' · Reviewed':' · Check by listening'):' · Automatic word alignment');if(w?.untimed)$('timingOrigin').textContent='Provisional timing · Add audio to fit the voice';$('timingOrigin').title=w?.timingReason||'';}
 function selectWord(id,doSeek=false){if(state.busy)return;state.selected=id;renderInspector();renderWords();const w=selected();if(w){if(doSeek)seek(w.start);ensureWindow(w.start,true);}renderLane();refresh();}
 function filteredWords(){const query=$('search').value.trim().toLowerCase();return state.words.filter(w=>(!query||w.text.toLowerCase().includes(query))&&(!$('reviewOnly').checked||needsReview(w)));}
