@@ -261,6 +261,8 @@ function endTimelinePointer(e){
 for(const event of ['pointerup','pointercancel','lostpointercapture'])$('timingLane').addEventListener(event,endTimelinePointer);
 $('timingLane').addEventListener('wheel',e=>{if(state.busy||!state.duration)return;e.preventDefault();if(drag)return;const geometry=timelineGeometry(),units=e.deltaMode===1?16:e.deltaMode===2?geometry.width:1;if(e.ctrlKey||e.metaKey)zoomTimeline(Math.exp(clamp(e.deltaY*units*.003,-1,1)),clamp((e.clientX-geometry.left)/geometry.width,0,1));else setTimelineView(state.windowStart+(e.deltaX||e.deltaY)*units/geometry.width*timelineView.span);},{passive:false});
 $('timingLane').addEventListener('keydown',e=>{
+ // Desktop browser zoom shortcuts still work when the timeline has keyboard focus.
+ if((e.ctrlKey||e.metaKey)&&!document.documentElement.classList.contains('ios-fixed-scale'))return;
  if(state.busy||!state.duration)return;const chip=e.target.closest('.timing-chip');
  if(chip&&['ArrowLeft','ArrowRight','Enter'].includes(e.key)){e.preventDefault();state.selected=chip.dataset.id;if(e.key==='Enter')selectWord(chip.dataset.id,true);else{moveSelected((e.key==='ArrowLeft'?-1:1)*(e.shiftKey?.1:timelineView.magnetic?timelineGrid():.01));const node=[...$('chips').querySelectorAll('.timing-chip')].find(item=>item.dataset.id===chip.dataset.id);node?.focus({preventScroll:true});}return;}
  if(['ArrowLeft','ArrowRight','+','=','-','Home','End'].includes(e.key)){e.preventDefault();if(e.key==='ArrowLeft'||e.key==='ArrowRight')setTimelineView(state.windowStart+(e.key==='ArrowLeft'?-1:1)*timelineView.span*.2);else if(e.key==='Home')setTimelineView(0);else if(e.key==='End')setTimelineView(state.duration-timelineView.span);else zoomTimeline(e.key==='-'?2:.5);}
